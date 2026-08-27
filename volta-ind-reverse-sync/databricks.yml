@@ -1,0 +1,74 @@
+# Volta Industrial — Reverse Sync SCD-2
+# Syncs writable Postgres changes (work_orders_app) back to Delta Lake as SCD Type 2.
+#
+# Deploy:  databricks bundle deploy --target dev
+# Run:     databricks bundle run reverse_sync_scd2 --target dev
+# Destroy: databricks bundle destroy --target dev
+
+bundle:
+  name: volta-ind-reverse-sync
+
+variables:
+  lakebase_project_id:
+    default: volta-ind
+  catalog:
+    default: tech_summit_jinie_group_catalog
+  schema:
+    default: default
+  postgres_database:
+    default: databricks_postgres
+
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host: https://fe-sandbox-tech-summit-jinie-group.cloud.databricks.com
+    variables:
+      lakebase_project_id: volta-ind
+
+  production:
+    mode: production
+    workspace:
+      host: https://fe-sandbox-tech-summit-jinie-group.cloud.databricks.com
+    variables:
+      lakebase_project_id: volta-ind
+
+resources:
+  jobs:
+    reverse_sync_scd2:
+      name: "Volta Industrial — Reverse Sync SCD-2"
+      description: >
+        Reads work_orders_app from Lakebase Postgres (production branch)
+        and applies SCD Type 2 MERGE into a Delta table in Unity Catalog.
+        Tracks status transitions: proposed → approved → executed → overridden.
+      tags:
+        project: volta-industrial
+        sync_direction: postgres-to-delta
+        scd_type: "2"
+
+      tasks:
+        - task_key: sync_work_orders_scd2
+          notebook_task:
+            notebook_path: src/reverse_sync_scd2
+            base_parameters:
+              lakebase_project_id: ${var.lakebase_project_id}
+              catalog: ${var.catalog}
+              schema: ${var.schema}
+              postgres_database: ${var.postgres_database}
+          libraries:
+            - pypi:
+                package: "psycopg[binary]>=3.1.0"
+            - pypi:
+                package: "databricks-sdk>=0.118.0"
+
+      schedule:
+        quartz_cron_expression: "0 */15 * * * ?"
+        timezone_id: UTC
+
+      queue:
+        enabled: true
+
+      email_notifications:
+        on_failure:
+          - jince.james@databricks.com
